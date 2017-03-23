@@ -1,5 +1,9 @@
--module(expr).
+-module(assign9).
 -compile(export_all).
+
+% Asif Jamal
+% Assignment 9 - Expressions
+% 3/9/2017
 
 %
 % A suite of functions for handling arithmetical expressions
@@ -18,7 +22,9 @@
 -type expr() :: {'num',integer()}
              |  {'var',atom()}
              |  {'add',expr(),expr()}
-             |  {'mul',expr(),expr()}.
+             |  {'mul',expr(),expr()}
+			 |	{'sub',expr(),expr()}
+			 |	{'divide',expr(),expr()}.
 
 % For example,
 %   {add,{var,a},{mul,{num,2},{var,b}}
@@ -72,7 +78,9 @@ parse([$(|Rest]) ->                            % starts with a '('
       [$)|RestFinal] = Rest3,                  % starts with a ')'
       {case Op of
 	  $+ -> {add,E1,E2};
-	  $* -> {mul,E1,E2}
+	  $* -> {mul,E1,E2};
+	  $- -> {sub,E1,E2};
+	  $/ -> {divide,E1,E2}
         end,
        RestFinal};
 
@@ -89,7 +97,51 @@ parse([Ch|Rest]) when ($0 =< Ch andalso Ch =< $9) orelse Ch==$- ->
 parse([Ch|Rest])  when $a =< Ch andalso Ch =< $z ->
     {Succeeds,Remainder} = get_while(fun is_alpha/1,Rest),
     {{var, list_to_atom([Ch|Succeeds])}, Remainder}.
+	   
+% Takes a line without parenthesis except for ')' at the end.
+% Parses the line and returns an expression. 
+parse2(Rest) ->
+	{E1, Rest1} = parse(Rest),
+	NumStack = [E1],
+	parse5(Rest1, [], NumStack).
 
+
+% Base case. Matches when no operators are left in the operator stack and returns
+% the single expression which is left in the number stack. 
+parse5([$)|T], [], [Result|T]) -> {Result,T};
+
+% Matches when the line has been iterated through and matches on ')'. Uses an 
+% operator stack and number stack of expressions to build a single expression.
+parse5([$)|T], [Op|OpRest], [E1, E2|NumRest]) -> 
+	if
+		Op == $+ ->
+			NumStack = [{add, E1, E2}|NumRest],
+			parse5([$)|T], OpRest, NumStack);
+		true -> % Op == $-
+			NumStack = [{sub, E2, E1}|NumRest],
+			parse5([$)|T], OpRest, NumStack)
+	end;
+	
+	
+% Takes in an expression string without parenthesis in the middle and 
+% parses it into a stack of operators and stack of expressions. 
+parse5([Op|Rest], OpStack, NumStack) ->
+	{E2, Rest1} = parse(Rest),
+	if 
+		Op == $* ->
+			[E1|RestNum] = NumStack,
+			NumStack2 = [{mul, E1, E2}|RestNum],
+			parse5(Rest1, OpStack, NumStack2);
+		Op == $/ ->
+			[E1|RestNum] = NumStack,
+			NumStack2 = [{divide, E1, E2}|RestNum],
+			parse5(Rest1, OpStack, NumStack2);
+		true -> % Op is addition or substraction
+			OpStack2 = [Op|OpStack],
+			NumStack2 = [E2|NumStack],
+			parse5(Rest1, OpStack2, NumStack2)
+	end.
+	
 % auxiliary functions
 
 % recognise a digit
@@ -137,7 +189,11 @@ eval({num,N}) ->
 eval({add,E1,E2}) ->
     eval(E1) + eval(E2);
 eval({mul,E1,E2}) ->
-    eval(E1) * eval(E2).
+    eval(E1) * eval(E2);
+eval({sub,E1,E2}) ->
+	eval(E1) - eval(E2);
+eval({divide,E1,E2}) ->
+	eval(E1) div eval(E2).
 
 -type env() :: [{atom(),integer()}].
 
@@ -150,7 +206,11 @@ eval(Env,{var,A}) ->
 eval(Env,{add,E1,E2}) ->
     eval(Env,E1) + eval(Env,E2);
 eval(Env,{mul,E1,E2}) ->
-    eval(Env,E1) * eval(Env,E2).
+    eval(Env,E1) * eval(Env,E2);
+eval(Env, {sub, E1, E2}) ->
+	eval(Env, E1) - eval(Env, E2);
+eval(Env, {divide, E1, E2}) ->
+	eval(Env, E1) div eval(Env, E2).
 
 %
 % Compiler and virtual machine
@@ -160,11 +220,15 @@ eval(Env,{mul,E1,E2}) ->
 %    {fetch, A} - lookup value of variable a and push the result onto the stack
 %    {add2} - pop the top two elements of the stack, add, and push the result
 %    {mul2} - pop the top two elements of the stack, multiply, and push the result
+%	 [sub2} - pop the top two elements of the stack, subtract, and push the result
+%	 {divide2} - pop the top two elements of the stack, divide, and push the result	 
 
 -type instr() :: {'push',integer()}
               |  {'fetch',atom()}
               |  {'add2'}
-              |  {'mul2'}.
+              |  {'mul2'}
+			  |	 {'sub2'}
+			  |  {'divide2'}.
 
 -type program() :: [instr()].
 
@@ -179,7 +243,11 @@ compile({var,A}) ->
 compile({add,E1,E2}) ->
     compile(E1) ++ compile(E2) ++ [{add2}];
 compile({mul,E1,E2}) ->
-    compile(E1) ++ compile(E2) ++ [{mul2}].
+    compile(E1) ++ compile(E2) ++ [{mul2}];
+compile({sub,E1,E2}) ->
+	compile(E2) ++ compile(E1) ++ [{sub2}];
+compile({divide,E1,E2}) ->
+	compile(E2) ++ compile(E1) ++ [{divide2}].
 
 % run a code sequence in given environment and empty stack
 
@@ -202,8 +270,12 @@ run([{fetch, A} | Continue], Env, Stack) ->
     run(Continue, Env, [lookup(A,Env) | Stack]);
 run([{add2} | Continue], Env, [N1,N2|Stack]) ->
     run(Continue, Env, [(N1+N2) | Stack]);
+run([{sub2} | Continue], Env, [N1,N2|Stack]) ->
+	run(Continue, Env, [(N1-N2) | Stack]);
 run([{mul2} | Continue], Env ,[N1,N2|Stack]) ->
     run(Continue, Env, [(N1*N2) | Stack]);
+run([{divide2} | Continue], Env ,[N1,N2|Stack]) ->
+	run(Continue, Env, [(N1 div N2) | Stack]);
 run([],_Env,[N]) ->
     N.
 
@@ -383,4 +455,78 @@ simp(_F,E) -> E.
 
 simplify(E) ->
     simp(compose(rules()),E).
-	     
+
+% Uses evaluation function to process expressions.txt and outputs
+% the result to output1.txt file. 
+mymain1() ->
+	read_text_file("expressions.txt", "output1.txt", 1).
+	
+% Uses compile-execute to process expressions.txt and outputs 
+% the result to output2.txt file. 
+mymain2() ->
+	read_text_file("expressions.txt", "output2.txt", 2).
+	
+% Takes in the name of the file to read, output file and a choice
+% 1/2 to decide which processing method to use. Opens a connection
+% to read a file. 
+read_text_file(Filename, OutFilename, Num) ->
+    {ok, IoDevice} = file:open(Filename, [read]),
+    read_text(IoDevice, OutFilename, Num),
+    file:close(IoDevice).
+
+% Takes IoDevice output filename and Num (1/2). Reads a line from a text file,
+% processes the line and repeats. 
+read_text(IoDevice, OutFilename, Num) ->
+    case file:read_line(IoDevice) of
+        {ok, Data} -> Data2 = re:replace(Data, "\\s+", "", [global,{return,list}]),
+					  write_text_file(OutFilename, Data2, Num),
+                      read_text(IoDevice, OutFilename, Num);
+        eof        -> ok
+    end.
+	
+% Opens a connection to an output file. Takes in a line to process. Takes
+% in a num (1/2). 
+write_text_file(OutFilename, Line, Num) ->
+	{ok, IoDevice} = file:open(OutFilename, [append]),
+	write_text(IoDevice, Line, Num),
+	file:close(IoDevice).
+
+% Takes in a line. Processes it and writes the result to a text file. 
+write_text(IoDevice, Line, Num) ->
+	[$(|T] = Line,
+	Choice = choose(T),
+	if 
+		Choice == 1 ->
+			{Ex, _} = parse(Line);
+		true -> % Else Choice = 2 
+			{Ex, _} = parse2(T)
+	end,
+	Env = [{a, 5}, {b, 7}], 
+	if 
+		Num == 1 ->
+			Result = assign9:eval(Env, Ex);
+		true -> % Num == 2
+			Result = assign9:execute(Env, Ex)
+	end,
+	Result2 = integer_to_list(Result),
+	LineSep = io_lib:nl(),
+	file:write(IoDevice, Result2),
+	file:write(IoDevice, LineSep).
+
+% Base case. Returns 2 for 2nd parsing method if no parenthesis found
+% in line. 	
+choose([]) -> 2;
+	
+% Takes in line without '(' at start.
+% Checks rest of text for '(' to see which parsing method to choose. 
+% If '(' is found it means that the expression uses parenthesis and
+% a 1 is returned. Otherwise a 2 is returned to signify it doesn't uses
+% parenthesis. 
+choose([H|T]) ->
+	if 
+		H == $( ->
+			1;
+		true -> % Else recursive clause to keep searching
+			choose(T)
+	end.
+	
