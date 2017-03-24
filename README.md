@@ -1,7 +1,7 @@
 # Comparative-Programming-Languages
-Projects from TCSS 480 Comparative Programming Languages 
-Expressions:
-Parses, evaluates and executes expressions using Erlang. 
+Projects from TCSS 480 Comparative Programming Languages
+
+Expressions: Parses, evaluates and executes expressions using Erlang. 
 
 Takes in a file, "expressions.txt", containing expressions of the form-
 (2*(3+4))
